@@ -47,7 +47,7 @@ services:
       - "8888:8888"
     volumes:
       - nginx-shared:/nginx
-    command: docker/web/run_web.sh
+    command: chmod +x ./docker/web/run_web.sh && ./docker/web/run_web.sh
 
   indexer-worker: &worker
     build:
@@ -62,7 +62,7 @@ services:
       - db
       - redis
       - rabbitmq
-    command: docker/web/celery/worker/run.sh
+    command: celery -C -A config.celery_app worker --loglevel debug --pool=gevent --concurrency=${CELERYD_CONCURRENCY-1000} --max-memory-per-child=${MAX_MEMORY_PER_CHILD-2097152} --max-tasks-per-child=${MAX_TASKS_PER_CHILD-1000000} -Q "$WORKER_QUEUES"
 
   contracts-tokens-worker:
     <<: *worker
@@ -76,11 +76,11 @@ services:
 
   scheduler:
     <<: *worker
-    command: docker/web/celery/scheduler/run.sh
+    command: celery -C -A config.celery_app beat -S django_celery_beat.schedulers:DatabaseScheduler --loglevel debug
 
   flower:
     <<: *worker
-    command: docker/web/celery/flower/run.sh
+    command: celery -C -A config.celery_app flower
     ports:
       - "5555:5555"
 
