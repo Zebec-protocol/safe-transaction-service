@@ -209,8 +209,12 @@ MASTER_COPIES: Dict[EthereumNetwork, List[Tuple[str, int, str]]] = {
         ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 11546, "1.3.0"),
     ],
     EthereumNetwork.BINANCE: [
-        ("0x3E5c63644E683549055b9Be8653de26E0B4CD36E", 8485899, "1.3.0+L2"),
-        ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 8485903, "1.3.0"),
+        ("0xA6f2e94bD3EF99528E946e818d4d4E884dF3D5Fc", 26445990, "1.3.0+L2"),
+        ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 25413069, "1.3.0"),
+    ],
+    EthereumNetwork.BSC_CHAPEL: [
+        ("0xA6f2e94bD3EF99528E946e818d4d4E884dF3D5Fc", 26445990, "1.3.0+L2"),
+        ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 25413069, "1.3.0"),
     ],
     EthereumNetwork.CELO: [
         ("0xfb1bffC9d739B8D520DaF37dF666da4C687191EA", 8944350, "1.3.0+L2"),
@@ -420,8 +424,11 @@ PROXY_FACTORIES: Dict[EthereumNetwork, List[Tuple[str, int]]] = {
     EthereumNetwork.ARBITRUM_GOERLI: [
         ("0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2", 11538),  # v1.3.0
     ],
-    EthereumNetwork.BINANCE: [
-        ("0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2", 8485873),  # v1.3.0
+     EthereumNetwork.BINANCE: [
+        ("0x246f42884273405D13EC0b24c5803212EA3016C8", 26423831),  # v1.3.0
+    ],
+    EthereumNetwork.BSC_CHAPEL: [
+        ("0x246f42884273405D13EC0b24c5803212EA3016C8", 26423831),  # v1.3.0
     ],
     EthereumNetwork.CELO: [
         ("0xC22834581EbC8527d974F8a1c97E1bEA4EF910BC", 8944342),  # v1.3.0
@@ -567,6 +574,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Setting up Safe Contract Addresses"))
         ethereum_client = EthereumClientProvider()
         ethereum_network = ethereum_client.get_network()
+        print(ethereum_network)
         if ethereum_network in MASTER_COPIES:
             self.stdout.write(
                 self.style.SUCCESS(f"Setting up {ethereum_network.name} safe addresses")

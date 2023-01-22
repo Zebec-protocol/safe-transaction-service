@@ -1510,6 +1510,7 @@ class SafeMasterCopy(MonitoredAddress):
 
 class SafeContract(models.Model):
     address = EthereumAddressV2Field(primary_key=True)
+    name = models.CharField(max_length=225)
     ethereum_tx = models.ForeignKey(
         EthereumTx, on_delete=models.CASCADE, related_name="safe_contracts"
     )
