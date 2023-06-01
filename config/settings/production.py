@@ -69,6 +69,10 @@ ADMIN_URL = env("DJANGO_ADMIN_URL", default="admin/")
 # ------------------------------------------------------------------------------
 CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=REDIS_URL)
 
+# Backend URL
+BACKEND_URL = env("BACKEND_URL", default="http://localhost:8000")
+
+
 # Gunicorn
 # ------------------------------------------------------------------------------
 INSTALLED_APPS += ["gunicorn"]  # noqa F405

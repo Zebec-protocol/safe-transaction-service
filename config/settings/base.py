@@ -513,3 +513,7 @@ SWAGGER_SETTINGS = {
         "api_key": {"type": "apiKey", "in": "header", "name": "Authorization"}
     },
 }
+
+
+# Backend URL
+BACKEND_URL = env("BACKEND_URL", default="http://localhost:8000")
