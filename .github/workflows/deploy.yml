@@ -1,0 +1,27 @@
+name: Deploy to Dev
+on:
+  push:
+    branches:
+      - "dev"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: "deploy inside server"
+        uses: appleboy/ssh-action@v0.1.10
+        env:
+          APP_ENV_VARS: ${{ vars.APP_ENV_VARS }}
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: "22"
+          envs: APP_ENV_VARS
+          script_stop: true
+          script: |
+            cd safe-transaction-service
+            echo "$APP_ENV_VARS" | base64 -d > .env
+            docker-compose build --force-rm
+            docker-compose up --force-recreate -d
