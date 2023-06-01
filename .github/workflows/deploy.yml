@@ -5,16 +5,15 @@ on:
       - "dev"
 
 jobs:
-
   deploy:
-  - name: deploy inside server
-    uses: appleboy/ssh-action@v0.1.10
-    with:
-      host: ${{ vars.EC2_HOST }}
-      username: ${{ vars.EC2_USER }}
-      key: ${{ secrets.SSH_KEY }}
-      port: "22"
-      script: |
-        ls
-
-
+    runs-on: ubuntu-latest
+    steps:
+      - name: "deploy inside server"
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ${{ vars.EC2_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: "22"
+          script: |
+            ls
