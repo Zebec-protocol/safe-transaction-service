@@ -1098,15 +1098,44 @@ class SafeInfoView(GenericAPIView):
                     "arguments": [address],
                 },
             )
+        safes = SafeContract.objects.filter(address=address)
+        if not safes.exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if not SafeContract.objects.filter(address=address).exists():
+        try:
+            safe = safes.first()
+            safe_info = SafeServiceProvider().get_safe_info(address)
+            # safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
+            serializer = self.get_serializer(safe_info)
+            return Response(status=status.HTTP_200_OK, data={**serializer.data, 'name': safe.name})
+        except CannotGetSafeInfoFromBlockchain:
+            return Response(
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                data={
+                    "code": 50,
+                    "message": "Cannot get Safe info from blockchain",
+                    "arguments": [address],
+                },
+            )
+
+    def post(self, request, address, *args, **kwargs):
+        if not ('name' in request.data):
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        contract = SafeContract.objects.filter(address=address)
+        if not contract.exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         try:
             # safe_info = SafeServiceProvider().get_safe_info(address)
+            safe = contract.first()
+            safe.name = request.data['name']
+            safe.save()
             safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
+
             serializer = self.get_serializer(safe_info)
-            return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+
+            return Response(status=status.HTTP_200_OK, data={**serializer.data, 'name': safe.name})
         except CannotGetSafeInfoFromBlockchain:
             return Response(
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1177,7 +1206,15 @@ class OwnersView(GenericAPIView):
         safes_for_owner = SafeLastStatus.objects.addresses_for_owner(address)
         serializer = self.get_serializer(data={"safes": safes_for_owner})
         assert serializer.is_valid()
-        return Response(status=status.HTTP_200_OK, data=serializer.data)
+        ## add nonce and threshold and owners to safeData
+
+        return Response(status=status.HTTP_200_OK, data={**serializer.data, 'safeData': [ {
+            'address': each.address,
+            'nonce': SafeLastStatus.objects.get(address=each.address).nonce if SafeLastStatus.objects.get(address=each.address).nonce else 0,
+            'threshold': SafeLastStatus.objects.get(address=each.address).threshold if SafeLastStatus.objects.get(address=each.address).threshold else 1,
+            'owners': SafeLastStatus.objects.get(address=each.address).owners if SafeLastStatus.objects.get(address=each.address).owners else [],
+            'name': each.name
+        } for each in SafeContract.objects.filter(address__in=safes_for_owner)]})
 
 
 class DataDecoderView(GenericAPIView):

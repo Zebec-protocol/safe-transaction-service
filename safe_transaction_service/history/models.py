@@ -1599,6 +1599,7 @@ class SafeContractManager(models.Manager):
 class SafeContract(models.Model):
     objects = SafeContractManager()
     address = EthereumAddressV2Field(primary_key=True)
+    name = models.CharField(max_length=225)
     ethereum_tx = models.ForeignKey(
         EthereumTx, on_delete=models.CASCADE, related_name="safe_contracts"
     )
@@ -1625,7 +1626,6 @@ class SafeContract(models.Model):
     def created_block_number(self) -> Optional[Type[int]]:
         if self.ethereum_tx:
             return self.ethereum_tx.block_id
-
 
 class SafeContractDelegateManager(models.Manager):
     def get_delegates_for_safe(self, address: ChecksumAddress) -> Set[ChecksumAddress]:
