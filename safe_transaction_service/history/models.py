@@ -1627,6 +1627,7 @@ class SafeContract(models.Model):
         if self.ethereum_tx:
             return self.ethereum_tx.block_id
 
+
 class SafeContractDelegateManager(models.Manager):
     def get_delegates_for_safe(self, address: ChecksumAddress) -> Set[ChecksumAddress]:
         return set(

@@ -13,21 +13,14 @@ from gnosis.safe.addresses import MASTER_COPIES, PROXY_FACTORIES
 from ...models import IndexingStatus, ProxyFactory, SafeMasterCopy
 
 MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
-        (
-            "0xA6f2e94bD3EF99528E946e818d4d4E884dF3D5Fc",
-            	
-26445990,
-            '1.3.0+L2'
-        ),
-         ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 
-20385770 , "1.3.0"),
+    ("0xA6f2e94bD3EF99528E946e818d4d4E884dF3D5Fc", 26445990, "1.3.0+L2"),
+    ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 20385770, "1.3.0"),
 ]
 
 PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
     (
         "0x246f42884273405D13EC0b24c5803212EA3016C8",
-        
-26423831,
+        26423831,
     ),
 ]
 

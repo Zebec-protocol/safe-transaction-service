@@ -6,14 +6,14 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('history', '0072_safecontract_banned_and_more'),
+        ("history", "0072_safecontract_banned_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='safecontract',
-            name='name',
-            field=models.CharField(default='', max_length=225),
+            model_name="safecontract",
+            name="name",
+            field=models.CharField(default="", max_length=225),
             preserve_default=False,
         ),
     ]
