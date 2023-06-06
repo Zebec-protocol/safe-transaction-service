@@ -695,6 +695,10 @@ class SafeInfoResponseSerializer(serializers.Serializer):
     nonce = serializers.IntegerField()
     threshold = serializers.IntegerField()
     owners = serializers.ListField(child=EthereumAddressField())
+    # add owners data array of dict containing address and name field
+    owners_data = serializers.ListField(
+        child=serializers.DictField(), allow_null=True, required=False
+    )
     master_copy = EthereumAddressField()
     modules = serializers.ListField(child=EthereumAddressField())
     fallback_handler = EthereumAddressField()

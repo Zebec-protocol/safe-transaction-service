@@ -1682,6 +1682,16 @@ class SafeContractDelegate(models.Model):
         )
 
 
+class SafeOwners(models.Model):
+    safe = models.CharField(max_length=225)
+    address = models.CharField(max_length=225)
+    name = models.CharField(max_length=225)
+
+    class Meta:
+        verbose_name_plural = "Safe owners"
+        unique_together = (("safe", "address"),)
+
+
 class SafeStatusBase(models.Model):
     internal_tx = models.OneToOneField(
         InternalTx,

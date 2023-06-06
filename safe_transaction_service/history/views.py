@@ -7,6 +7,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import django_filters
+import jwt
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from eth_typing import HexStr
@@ -45,6 +46,7 @@ from .models import (
     SafeContractDelegate,
     SafeLastStatus,
     SafeMasterCopy,
+    SafeOwners,
     TransferDict,
 )
 from .serializers import get_data_decoded_from_data
@@ -1108,8 +1110,16 @@ class SafeInfoView(GenericAPIView):
             # safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
             serializer = self.get_serializer(safe_info)
             return Response(
-                status=status.HTTP_200_OK, data={**serializer.data, "name": safe.name}
+                status=status.HTTP_200_OK,
+                data={
+                    **serializer.data,
+                    "name": safe.name,
+                    "owners_data": SafeOwners.objects.filter(safe=safe.address).values(
+                        "address", "name"
+                    ),
+                },
             )
+
         except CannotGetSafeInfoFromBlockchain:
             return Response(
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1120,7 +1130,28 @@ class SafeInfoView(GenericAPIView):
                 },
             )
 
-    def post(self, request, address, *args, **kwargs):
+    def post(self, request, address):
+        """Function updating Safe name  and get status of the safe"""
+        # access authentication token from request header
+        token = request.META.get("HTTP_AUTHORIZATION", " ").split(" ")[1]
+        owner = None
+        # jwt verify token
+        try:
+            payload = jwt.decode(
+                token, key=settings.SECRET_KEY_JWT, algorithms=["HS256"]
+            )
+            if "wallet" not in payload:
+                return Response(
+                    status=status.HTTP_401_UNAUTHORIZED,
+                    data={"code": 401, "message": "Invalid token"},
+                )
+            owner = payload["wallet"]
+        except Exception as err:
+            return Response(
+                status=status.HTTP_401_UNAUTHORIZED,
+                data={"code": 401, "message": err.__str__()},
+            )
+
         if not ("name" in request.data):
             return Response(status=status.HTTP_400_BAD_REQUEST)
         contract = SafeContract.objects.filter(address=address)
@@ -1134,10 +1165,79 @@ class SafeInfoView(GenericAPIView):
             safe.save()
             safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
 
+            if owner not in safe_info.owners:
+                return Response(
+                    status=status.HTTP_401_UNAUTHORIZED,
+                    data={"code": 401, "message": "User is not owner of safe"},
+                )
             serializer = self.get_serializer(safe_info)
+            print(request.data)
+            if "owners_data" in request.data:
+                owner_data = request.data["owners_data"]
+                # check if owner_data is valid list
+                if not isinstance(owner_data, list):
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "code": 400,
+                            "message": "owner_data is not valid list",
+                        },
+                    )
+                print(owner_data)
+                # check if owner_data is valid list of dict
+                for owner in owner_data:
+
+                    if not isinstance(owner, dict):
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "code": 400,
+                                "message": "Data of owner is not valid",
+                            },
+                        )
+                    if not ("address" in owner):
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "code": 400,
+                                "message": "Address is required",
+                            },
+                        )
+                    if not fast_is_checksum_address(owner["address"]):
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "code": 400,
+                                "message": "Address is not valid",
+                            },
+                        )
+                    if not ("name" in owner):
+                        continue
+                    if not isinstance(owner["name"], str):
+                        continue
+                    if SafeOwners.objects.filter(
+                        safe=safe.address, address=owner["address"]
+                    ).exists():
+                        SafeOwners.objects.filter(
+                            safe=safe.address, address=owner["address"]
+                        ).update(name=owner["name"])
+                    else:
+                        SafeOwners.objects.update_or_create(
+                            safe=safe.address,
+                            address=owner["address"],
+                            name=owner["name"],
+                        )
+                    print(owner)
 
             return Response(
-                status=status.HTTP_200_OK, data={**serializer.data, "name": safe.name}
+                status=status.HTTP_200_OK,
+                data={
+                    **serializer.data,
+                    "name": safe.name,
+                    "owners_data": SafeOwners.objects.filter(safe=safe.address).values(
+                        "address", "name"
+                    ),
+                },
             )
         except CannotGetSafeInfoFromBlockchain:
             return Response(

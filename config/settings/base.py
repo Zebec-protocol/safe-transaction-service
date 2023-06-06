@@ -47,6 +47,9 @@ SSO_ENABLED = False
 # Enable analytics endpoints
 ENABLE_ANALYTICS = env("ENABLE_ANALYTICS", default=False)
 
+# JWT
+SECRET_KEY_JWT = env("SECRET_KEY_JWT", default="secret")
+
 # DATABASES
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#databases
