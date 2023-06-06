@@ -1117,13 +1117,15 @@ class SafeInfoView(GenericAPIView):
                     "owners_data": [
                         {
                             "address": each_owner,
-                            "name": SafeContract.objects.filter(
-                                address__iexact=each_owner.lower()
+                            "name": SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
                             )
                             .first()
                             .name
-                            if SafeContract.objects.filter(
-                                address__iexact=each_owner.lower()
+                            if SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
                             ).exists()
                             else None,
                         }
