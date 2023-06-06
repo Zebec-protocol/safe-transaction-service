@@ -1217,7 +1217,7 @@ class SafeInfoView(GenericAPIView):
                         continue
                     if not isinstance(owner["name"], str):
                         continue
-                    if owner["address"] not in [
+                    if owner["address"].lower() not in [
                         each.lower() for each in safe_info.owners
                     ]:
                         continue
