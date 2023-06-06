@@ -32,6 +32,7 @@ from .models import (
     SafeLastStatus,
     SafeMasterCopy,
     SafeStatus,
+    SafeOwners,
     WebHook,
 )
 from .services import IndexServiceProvider
@@ -85,6 +86,10 @@ class SafeContractInline(admin.TabularInline):
 class SafeContractDelegateInline(admin.TabularInline):
     model = SafeContractDelegate
     raw_id_fields = ("safe_contract",)
+
+class SafeOwnersDelegateInline(admin.TabularInline):
+    model = SafeOwners
+    raw_id_fields = ("safe",)
 
 
 # Admin models ------------------------------
@@ -632,6 +637,9 @@ class SafeLastStatusAdmin(BinarySearchAdmin):
 class SafeStatusAdmin(SafeLastStatusAdmin):
     pass
 
+@admin.register(SafeOwners)
+class SafeOwnerAdmin(admin.ModelAdmin):
+    pass
 
 @admin.register(WebHook)
 class WebHookAdmin(BinarySearchAdmin):

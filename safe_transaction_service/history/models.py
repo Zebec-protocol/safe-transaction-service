@@ -1691,6 +1691,9 @@ class SafeOwners(models.Model):
         verbose_name_plural = "Safe owners"
         unique_together = (("safe", "address"),)
 
+    def __str__(self):
+        return f"Safe={self.safe} Owner={self.address}"
+
 
 class SafeStatusBase(models.Model):
     internal_tx = models.OneToOneField(
