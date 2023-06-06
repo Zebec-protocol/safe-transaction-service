@@ -3169,6 +3169,7 @@ class TestViews(SafeTestCaseMixin, APITestCase):
                 "owners": blockchain_safe.retrieve_owners(),
                 "master_copy": blockchain_safe.retrieve_master_copy_address(),
                 "modules": [],
+                "name": "",
                 "fallback_handler": blockchain_safe.retrieve_fallback_handler(),
                 "guard": NULL_ADDRESS,
                 "version": "1.25.0",
