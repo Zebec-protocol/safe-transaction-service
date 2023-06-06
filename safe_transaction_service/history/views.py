@@ -1114,9 +1114,21 @@ class SafeInfoView(GenericAPIView):
                 data={
                     **serializer.data,
                     "name": safe.name,
-                    "owners_data": SafeOwners.objects.filter(safe=safe.address).values(
-                        "address", "name"
-                    ),
+                    "owners_data": [
+                        {
+                            "address": each_owner,
+                            "name": SafeContract.objects.filter(
+                                address__iexact=each_owner.lower()
+                            )
+                            .first()
+                            .name
+                            if SafeContract.objects.filter(
+                                address__iexact=each_owner.lower()
+                            ).exists()
+                            else None,
+                        }
+                        for each_owner in safe_info.owners
+                    ],
                 },
             )
 
@@ -1133,7 +1145,8 @@ class SafeInfoView(GenericAPIView):
     def post(self, request, address):
         """Function updating Safe name  and get status of the safe"""
         # access authentication token from request header
-        token = request.META.get("HTTP_AUTHORIZATION", " ").split(" ")[1]
+        token = request.META.get("HTTP_AUTHORIZATION", " ").split(" ")
+        token = token[1] if len(token) > 1 else token[0]
         owner = None
         # jwt verify token
         try:
@@ -1171,7 +1184,6 @@ class SafeInfoView(GenericAPIView):
                     data={"code": 401, "message": "User is not owner of safe"},
                 )
             serializer = self.get_serializer(safe_info)
-            print(request.data)
             if "owners_data" in request.data:
                 owner_data = request.data["owners_data"]
                 # check if owner_data is valid list
@@ -1183,10 +1195,8 @@ class SafeInfoView(GenericAPIView):
                             "message": "owner_data is not valid list",
                         },
                     )
-                print(owner_data)
                 # check if owner_data is valid list of dict
                 for owner in owner_data:
-
                     if not isinstance(owner, dict):
                         return Response(
                             status=status.HTTP_400_BAD_REQUEST,
@@ -1203,23 +1213,19 @@ class SafeInfoView(GenericAPIView):
                                 "message": "Address is required",
                             },
                         )
-                    if not fast_is_checksum_address(owner["address"]):
-                        return Response(
-                            status=status.HTTP_400_BAD_REQUEST,
-                            data={
-                                "code": 400,
-                                "message": "Address is not valid",
-                            },
-                        )
                     if not ("name" in owner):
                         continue
                     if not isinstance(owner["name"], str):
                         continue
+                    if owner["address"] not in [
+                        each.lower() for each in safe_info.owners
+                    ]:
+                        continue
                     if SafeOwners.objects.filter(
-                        safe=safe.address, address=owner["address"]
+                        safe=safe.address, address__iexact=owner["address"].lower()
                     ).exists():
                         SafeOwners.objects.filter(
-                            safe=safe.address, address=owner["address"]
+                            safe=safe.address, address__iexact=owner["address"].lower()
                         ).update(name=owner["name"])
                     else:
                         SafeOwners.objects.update_or_create(
@@ -1227,16 +1233,28 @@ class SafeInfoView(GenericAPIView):
                             address=owner["address"],
                             name=owner["name"],
                         )
-                    print(owner)
-
             return Response(
                 status=status.HTTP_200_OK,
                 data={
                     **serializer.data,
                     "name": safe.name,
-                    "owners_data": SafeOwners.objects.filter(safe=safe.address).values(
-                        "address", "name"
-                    ),
+                    "owners_data": [
+                        {
+                            "address": each_owner,
+                            "name": SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
+                            )
+                            .first()
+                            .name
+                            if SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
+                            ).exists()
+                            else None,
+                        }
+                        for each_owner in safe_info.owners
+                    ],
                 },
             )
         except CannotGetSafeInfoFromBlockchain:
