@@ -1329,12 +1329,7 @@ class OwnersView(GenericAPIView):
         safes_for_owner = SafeLastStatus.objects.addresses_for_owner(address)
         serializer = self.get_serializer(data={"safes": safes_for_owner})
         assert serializer.is_valid()
-
-        return Response(
-            status=status.HTTP_200_OK,
-            data={
-                **serializer.data,
-                "safeData": [
+        safe_data = [
                     {
                         "address": each.address,
                         "nonce": SafeLastStatus.objects.get(address=each.address).nonce
@@ -1351,9 +1346,16 @@ class OwnersView(GenericAPIView):
                         if SafeLastStatus.objects.get(address=each.address).owners
                         else [],
                         "name": each.name,
+                        "created": each.created,
                     }
                     for each in SafeContract.objects.filter(address__in=safes_for_owner)
-                ],
+                ]
+        safe_data.sort(key=lambda x: x["created"], reverse=True)
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                **serializer.data,
+                "safeData": safe_data,
             },
         )
 
