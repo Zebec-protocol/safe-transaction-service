@@ -611,7 +611,8 @@ class SafeMultisigTransactionResponseSerializer(SafeMultisigTxSerializerV1):
 
     def get_data_decoded(self, obj: MultisigTransaction) -> Dict[str, Any]:
         # If delegate call contract must be whitelisted (security)
-        if obj.data_should_be_decoded():
+        hexValue = (obj.data.tobytes() if obj.data else b"").hex()
+        if obj.data_should_be_decoded() or hexValue.startswith("8d80ff0a"):
             return get_data_decoded_from_data(
                 obj.data.tobytes() if obj.data else b"", address=obj.to
             )

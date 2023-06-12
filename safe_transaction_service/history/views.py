@@ -1330,26 +1330,22 @@ class OwnersView(GenericAPIView):
         serializer = self.get_serializer(data={"safes": safes_for_owner})
         assert serializer.is_valid()
         safe_data = [
-                    {
-                        "address": each.address,
-                        "nonce": SafeLastStatus.objects.get(address=each.address).nonce
-                        if SafeLastStatus.objects.get(address=each.address).nonce
-                        else 0,
-                        "threshold": SafeLastStatus.objects.get(
-                            address=each.address
-                        ).threshold
-                        if SafeLastStatus.objects.get(address=each.address).threshold
-                        else 1,
-                        "owners": SafeLastStatus.objects.get(
-                            address=each.address
-                        ).owners
-                        if SafeLastStatus.objects.get(address=each.address).owners
-                        else [],
-                        "name": each.name,
-                        "created": each.created,
-                    }
-                    for each in SafeContract.objects.filter(address__in=safes_for_owner)
-                ]
+            {
+                "address": each.address,
+                "nonce": SafeLastStatus.objects.get(address=each.address).nonce
+                if SafeLastStatus.objects.get(address=each.address).nonce
+                else 0,
+                "threshold": SafeLastStatus.objects.get(address=each.address).threshold
+                if SafeLastStatus.objects.get(address=each.address).threshold
+                else 1,
+                "owners": SafeLastStatus.objects.get(address=each.address).owners
+                if SafeLastStatus.objects.get(address=each.address).owners
+                else [],
+                "name": each.name,
+                "created": each.created,
+            }
+            for each in SafeContract.objects.filter(address__in=safes_for_owner)
+        ]
         safe_data.sort(key=lambda x: x["created"], reverse=True)
         return Response(
             status=status.HTTP_200_OK,
