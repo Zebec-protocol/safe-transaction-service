@@ -473,6 +473,7 @@ class SafeMultisigTransactionListView(ListAPIView):
         Returns the history of a multisig tx (safe)
         """
         address = kwargs["address"]
+
         if not fast_is_checksum_address(address):
             return Response(
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -485,6 +486,17 @@ class SafeMultisigTransactionListView(ListAPIView):
 
         response = super().get(request, *args, **kwargs)
         response.data["count_unique_nonce"] = self.get_unique_nonce(address)
+        if "nonce__gte" in request.GET:
+            nonce = request.GET["nonce__gte"]
+            if nonce.isdigit():
+                transactions = MultisigTransaction.objects.filter(
+                    safe=address, nonce=nonce, ethereum_tx_id=None
+                ).order_by("-created")
+                response.data[
+                    "priority"
+                ] = serializers.SafeMultisigTransactionResponseSerializer(
+                    transactions, many=True
+                ).data
         return response
 
     @swagger_auto_schema(
