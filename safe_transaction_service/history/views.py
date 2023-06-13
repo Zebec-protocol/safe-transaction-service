@@ -489,9 +489,15 @@ class SafeMultisigTransactionListView(ListAPIView):
         if "nonce__gte" in request.GET:
             nonce = request.GET["nonce__gte"]
             if nonce.isdigit():
-                transactions = MultisigTransaction.objects.filter(
-                    safe=address, nonce=nonce, ethereum_tx_id=None
-                ).order_by("-created")
+                transactions = (
+                    MultisigTransaction.objects.filter(
+                        safe=address, nonce=nonce, ethereum_tx_id=None
+                    )
+                    .with_confirmations_required()
+                    .prefetch_related("confirmations")
+                    .select_related("ethereum_tx__block")
+                    .order_by("-created")
+                )
                 response.data[
                     "priority"
                 ] = serializers.SafeMultisigTransactionResponseSerializer(
