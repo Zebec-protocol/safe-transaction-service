@@ -448,7 +448,7 @@ class SafeMultisigTransactionListView(ListAPIView):
             .with_confirmations_required()
             .prefetch_related("confirmations")
             .select_related("ethereum_tx__block")
-            .order_by("-nonce", "-created")
+            .order_by("nonce", "-created")
         )
 
     def get_unique_nonce(self, address: str):
