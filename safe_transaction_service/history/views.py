@@ -1185,8 +1185,6 @@ class SafeInfoView(GenericAPIView):
                 data={"code": 401, "message": err.__str__()},
             )
 
-        if not ("name" in request.data):
-            return Response(status=status.HTTP_400_BAD_REQUEST)
         contract = SafeContract.objects.filter(address=address)
         if not contract.exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -1194,6 +1192,21 @@ class SafeInfoView(GenericAPIView):
         try:
             # safe_info = SafeServiceProvider().get_safe_info(address)
             safe = contract.first()
+            if "archived" in request.data:
+                safe.archived = not safe.archived
+                safe.save()
+                return Response(
+                    status=status.HTTP_200_OK,
+                    data={
+                        "safe": safe.address,
+                        "archived": safe.archived,
+                        "message": "Safe archived successfully"
+                        if safe.archived
+                        else "Safe unarchived successfully",
+                    },
+                )
+            if not ("name" in request.data):
+                return Response(status=status.HTTP_400_BAD_REQUEST)
             safe.name = request.data["name"]
             safe.save()
             safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
@@ -1347,6 +1360,13 @@ class OwnersView(GenericAPIView):
         safes_for_owner = SafeLastStatus.objects.addresses_for_owner(address)
         serializer = self.get_serializer(data={"safes": safes_for_owner})
         assert serializer.is_valid()
+        archived = False
+        print(request.query_params)
+        if (
+            "archived" in request.query_params
+            and request.query_params["archived"] == "true"
+        ):
+            archived = True
         safe_data = [
             {
                 "address": each.address,
@@ -1362,13 +1382,16 @@ class OwnersView(GenericAPIView):
                 "name": each.name,
                 "created": each.created,
             }
-            for each in SafeContract.objects.filter(address__in=safes_for_owner)
+            for each in SafeContract.objects.filter(
+                address__in=safes_for_owner, archived=archived
+            )
         ]
         safe_data.sort(key=lambda x: x["created"], reverse=True)
         return Response(
             status=status.HTTP_200_OK,
             data={
                 **serializer.data,
+                "safes": serializer.data["safes"] if len(safe_data) > 0 else [],
                 "safeData": safe_data,
             },
         )

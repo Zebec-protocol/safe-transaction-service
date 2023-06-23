@@ -1603,6 +1603,7 @@ class SafeContract(models.Model):
     ethereum_tx = models.ForeignKey(
         EthereumTx, on_delete=models.CASCADE, related_name="safe_contracts"
     )
+    archived = models.BooleanField(default=False)
     # Avoid to index events from problematic safes like non verified contracts
     banned = models.BooleanField(default=False)
 
