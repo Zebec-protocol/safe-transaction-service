@@ -127,7 +127,7 @@ class AboutEthereumRPCView(APIView):
             "syncing": syncing,
         }
 
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, format=None):
         """
         Get information about the Ethereum RPC node used by the service
@@ -137,7 +137,7 @@ class AboutEthereumRPCView(APIView):
 
 
 class AboutEthereumTracingRPCView(AboutEthereumRPCView):
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, format=None):
         """
         Get information about the Ethereum Tracing RPC node used by the service (if any configured)
@@ -153,7 +153,7 @@ class IndexingView(GenericAPIView):
     serializer_class = serializers.IndexingStatusSerializer
     pagination_class = None  # Don't show limit/offset in swagger
 
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request):
         """
         Get current indexing status for ERC20/721 events
@@ -443,12 +443,18 @@ class SafeMultisigTransactionListView(ListAPIView):
     pagination_class = pagination.DefaultPagination
 
     def get_queryset(self):
-        return (
+        print("query", self.request.query_params)
+        result = (
             MultisigTransaction.objects.filter(safe=self.kwargs["address"])
             .with_confirmations_required()
             .prefetch_related("confirmations")
             .select_related("ethereum_tx__block")
-            .order_by("nonce", "-created")
+        )
+        return (
+            result.order_by("-created")
+            if "executed" in self.request.query_params
+            and self.request.query_params["executed"] == "true"
+            else result.order_by("nonce", "-created")
         )
 
     def get_unique_nonce(self, address: str):
@@ -1311,7 +1317,7 @@ class ModulesView(GenericAPIView):
             422: "Module address checksum not valid",
         }
     )
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, address, *args, **kwargs):
         """
         Return Safes where the module address provided is enabled
@@ -1342,7 +1348,7 @@ class OwnersView(GenericAPIView):
             422: "Owner address checksum not valid",
         }
     )
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, address, *args, **kwargs):
         """
         Return Safes where the address provided is an owner
