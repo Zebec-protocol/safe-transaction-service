@@ -165,6 +165,7 @@ class IndexingView(GenericAPIView):
 
 
 class AboutSafeView(GenericAPIView):
+    serializer_class = serializers.SafeInfoResponseSerializer
     pagination_class = None  # Don't show limit/offset in swagger
 
     @method_decorator(cache_page(0))  # 15 seconds
