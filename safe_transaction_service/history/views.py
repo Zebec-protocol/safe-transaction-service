@@ -169,7 +169,7 @@ class AboutSafeView(GenericAPIView):
     pagination_class = None  # Don't show limit/offset in swagger
 
     @method_decorator(cache_page(0))  # 15 seconds
-    def get(self, request, address):
+    def get(self, request):
         """
         Get information about a Safe
         """
