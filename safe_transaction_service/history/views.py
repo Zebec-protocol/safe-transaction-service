@@ -175,14 +175,13 @@ class AboutSafeView(GenericAPIView):
         """
         try:
             safe_count = (
-                SafeContract.objects.exclude(name__isnull=False)
+                SafeContract.objects.filter(name__isnull=False)
                 .exclude(name__exact="")
                 .count()
             )
+            return Response(status=status.HTTP_200_OK, data={"count": safe_count})
         except CannotGetSafeInfoFromBlockchain:
             return Response(status=status.HTTP_404_NOT_FOUND)
-
-        return Response(status=status.HTTP_200_OK, data={"count": safe_count})
 
 
 class MasterCopiesView(ListAPIView):
