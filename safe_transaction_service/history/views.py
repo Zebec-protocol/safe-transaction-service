@@ -164,6 +164,26 @@ class IndexingView(GenericAPIView):
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
 
+class AboutSafeView(GenericAPIView):
+    pagination_class = None  # Don't show limit/offset in swagger
+
+    @method_decorator(cache_page(0))  # 15 seconds
+    def get(self, request, address):
+        """
+        Get information about a Safe
+        """
+        try:
+            safe_count = (
+                SafeContract.objects.exclude(name__isnull=False)
+                .exclude(name__exact="")
+                .count()
+            )
+        except CannotGetSafeInfoFromBlockchain:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        return Response(status=status.HTTP_200_OK, data={"count": safe_count})
+
+
 class MasterCopiesView(ListAPIView):
     serializer_class = serializers.MasterCopyResponseSerializer
     pagination_class = None
