@@ -627,6 +627,10 @@ class IndexingStatusSerializer(serializers.Serializer):
     synced = serializers.BooleanField()
 
 
+class AboutSafeResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+
+
 class ERC20IndexingStatusSerializer(serializers.Serializer):
     current_block_number = serializers.IntegerField()
     erc20_block_number = serializers.IntegerField()

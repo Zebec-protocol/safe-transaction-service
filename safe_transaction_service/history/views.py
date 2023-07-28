@@ -150,7 +150,7 @@ class AboutEthereumTracingRPCView(AboutEthereumRPCView):
 
 
 class IndexingView(GenericAPIView):
-    serializer_class = serializers.IndexingStatusSerializer
+    serializer_class = serializers.AboutSafeResponseSerializer
     pagination_class = None  # Don't show limit/offset in swagger
 
     @method_decorator(cache_page(0))  # 15 seconds
@@ -162,6 +162,26 @@ class IndexingView(GenericAPIView):
 
         serializer = self.get_serializer(index_service.get_indexing_status())
         return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+
+class AboutSafeView(GenericAPIView):
+    serializer_class = serializers.SafeInfoResponseSerializer
+    pagination_class = None  # Don't show limit/offset in swagger
+
+    @method_decorator(cache_page(0))  # 15 seconds
+    def get(self, request):
+        """
+        Get information about a Safe
+        """
+        try:
+            safe_count = (
+                SafeContract.objects.filter(name__isnull=False)
+                .exclude(name__exact="")
+                .count()
+            )
+            return Response(status=status.HTTP_200_OK, data={"count": safe_count})
+        except CannotGetSafeInfoFromBlockchain:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
 
 class MasterCopiesView(ListAPIView):
