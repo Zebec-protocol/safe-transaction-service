@@ -150,7 +150,7 @@ class AboutEthereumTracingRPCView(AboutEthereumRPCView):
 
 
 class IndexingView(GenericAPIView):
-    serializer_class = serializers.AboutSafeResponseSerializer
+    serializer_class = serializers.IndexingStatusSerializer
     pagination_class = None  # Don't show limit/offset in swagger
 
     @method_decorator(cache_page(0))  # 15 seconds
