@@ -10,7 +10,7 @@ from django_celery_beat.models import CrontabSchedule, IntervalSchedule, Periodi
 from gnosis.eth import EthereumClientProvider, EthereumNetwork
 from gnosis.safe.addresses import MASTER_COPIES, PROXY_FACTORIES
 
-from ...models import IndexingStatus, ProxyFactory, SafeMasterCopy
+from ...models import IndexingStatus, IndexingStatusType, ProxyFactory, SafeMasterCopy
 
 MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
         (
@@ -272,7 +272,12 @@ class Command(BaseCommand):
 
         :return: `True` if updated, `False` otherwise
         """
-        indexing_status = IndexingStatus.objects.get_erc20_721_indexing_status()
+        try:
+            indexing_status = IndexingStatus.objects.get_erc20_721_indexing_status()
+        except IndexingStatus.DoesNotExist:
+            indexing_status = IndexingStatus.objects.create(
+                indexing_type=IndexingStatusType.ERC20_721_EVENTS.value, block_number=0
+            )
 
         queryset = (
             SafeMasterCopy.objects.filter(l2=True)

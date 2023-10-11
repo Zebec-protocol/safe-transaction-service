@@ -163,7 +163,6 @@ class SafeMultisigTransactionSerializer(SafeMultisigTxSerializerV1):
             attrs["gas_token"],
             attrs["refund_receiver"],
             safe_nonce=attrs["nonce"],
-            safe_version=safe_version,
         )
         contract_transaction_hash = safe_tx.safe_tx_hash
 
@@ -258,6 +257,13 @@ class SafeMultisigTransactionSerializer(SafeMultisigTxSerializerV1):
             ):
                 trusted = user.has_perm("history.create_trusted")
 
+        if self.validated_data["sender"] in self.validated_data["safe_owners"]:
+            proposer = self.validated_data["sender"]
+        else:
+            proposer = SafeContractDelegate.objects.get(
+                delegate=self.validated_data["sender"]
+            ).delegator
+
         multisig_transaction, created = MultisigTransaction.objects.get_or_create(
             safe_tx_hash=safe_tx_hash,
             defaults={
@@ -276,6 +282,7 @@ class SafeMultisigTransactionSerializer(SafeMultisigTxSerializerV1):
                 "nonce": self.validated_data["nonce"],
                 "origin": origin,
                 "trusted": trusted,
+                "proposer": proposer,
             },
         )
 
@@ -369,7 +376,7 @@ class DelegateSignatureCheckerMixin:
 
 
 class DelegateSerializer(DelegateSignatureCheckerMixin, serializers.Serializer):
-    safe = EthereumAddressField(allow_null=True, required=False)
+    safe = EthereumAddressField(allow_null=True, required=False, default=None)
     delegate = EthereumAddressField()
     delegator = EthereumAddressField()
     signature = HexadecimalField(min_length=65)
@@ -474,7 +481,10 @@ class SafeModuleTransactionResponseSerializer(GnosisBaseModelSerializer):
     transaction_hash = serializers.SerializerMethodField()
     block_number = serializers.SerializerMethodField()
     is_successful = serializers.SerializerMethodField()
-    module_transaction_id = serializers.SerializerMethodField()
+    module_transaction_id = serializers.SerializerMethodField(
+        help_text="Internally calculated parameter to uniquely identify a moduleTransaction \n"
+        "`ModuleTransactionId = i+tx_hash+trace_address`"
+    )
 
     class Meta:
         model = ModuleTransaction
@@ -544,6 +554,7 @@ class SafeMultisigTransactionResponseSerializer(SafeMultisigTxSerializerV1):
     block_number = serializers.SerializerMethodField()
     transaction_hash = Sha3HashField(source="ethereum_tx_id")
     safe_tx_hash = Sha3HashField()
+    proposer = EthereumAddressField()
     executor = serializers.SerializerMethodField()
     value = serializers.CharField()
     is_executed = serializers.BooleanField(source="executed")
@@ -736,7 +747,11 @@ class TransferResponseSerializer(serializers.Serializer):
     value = serializers.CharField(allow_null=True, source="_value")
     token_id = serializers.CharField(allow_null=True, source="_token_id")
     token_address = EthereumAddressField(allow_null=True, default=None)
-    transfer_id = serializers.SerializerMethodField()
+    transfer_id = serializers.SerializerMethodField(
+        help_text="Internally calculated parameter to uniquely identify a transfer \n"
+        "Token transfers are calculated as `transferId = e+tx_hash+log_index` \n"
+        "Ether transfers are calculated as `transferId = i+tx_hash+trace_address`"
+    )
 
     def get_fields(self):
         result = super().get_fields()
@@ -981,40 +996,3 @@ class SafeDelegateDeleteSerializer(serializers.Serializer):
 
         attrs["delegator"] = delegator
         return attrs
-
-
-class SafeDelegateSerializer(SafeDelegateDeleteSerializer):
-    """
-    Deprecated in favour of DelegateSerializer
-    """
-
-    label = serializers.CharField(max_length=50)
-
-    def get_valid_delegators(
-        self,
-        ethereum_client: EthereumClient,
-        safe_address: ChecksumAddress,
-        delegate: ChecksumAddress,
-    ) -> List[ChecksumAddress]:
-        """
-        :param ethereum_client:
-        :param safe_address:
-        :param delegate:
-        :return: Valid delegators for a Safe. A delegate shouldn't be able to add itself
-        """
-        return get_safe_owners(safe_address)
-
-    def save(self, **kwargs):
-        safe_address = self.validated_data["safe"]
-        delegate = self.validated_data["delegate"]
-        delegator = self.validated_data["delegator"]
-        label = self.validated_data["label"]
-        obj, _ = SafeContractDelegate.objects.update_or_create(
-            safe_contract_id=safe_address,
-            delegate=delegate,
-            defaults={
-                "label": label,
-                "delegator": delegator,
-            },
-        )
-        return obj
