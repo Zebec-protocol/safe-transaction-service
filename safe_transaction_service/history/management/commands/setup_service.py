@@ -7,10 +7,54 @@ from django.db.models import Min
 
 from django_celery_beat.models import CrontabSchedule, IntervalSchedule, PeriodicTask
 
-from gnosis.eth import EthereumClientProvider
+from gnosis.eth import EthereumClientProvider, EthereumNetwork
 from gnosis.safe.addresses import MASTER_COPIES, PROXY_FACTORIES
 
 from ...models import IndexingStatus, IndexingStatusType, ProxyFactory, SafeMasterCopy
+
+MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
+    ("0xA6f2e94bD3EF99528E946e818d4d4E884dF3D5Fc", 26445990, "1.3.0+L2"),
+    ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 20385770, "1.3.0"),
+]
+MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
+    (
+        "0xfb1bffC9d739B8D520DaF37dF666da4C687191EA",
+        29847652,
+        "1.3.0+L2",
+    ),  # safe singleton address
+    (
+        "0x3E5c63644E683549055b9Be8653de26E0B4CD36E",
+        29847652,
+        "1.3.0+L2",
+    ),  # default singleton address
+    (
+        "0x69f4D1788e39c87893C980c06EdF4b7f686e2938",
+        29847652,
+        "1.3.0",
+    ),  # safe singleton address
+    (
+        "0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552",
+        29847652,
+        "1.3.0",
+    ),  # default singleton address
+]
+PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
+    (
+        "0x246f42884273405D13EC0b24c5803212EA3016C8",
+        26423831,
+    ),
+]
+
+PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
+    (
+        "0xC22834581EbC8527d974F8a1c97E1bEA4EF910BC",
+        29847652,
+    ),  # v1.3.0 safe singleton address
+    (
+        "0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2",
+        29847652,
+    ),  # v1.3.0 default singleton address
+]
 
 
 @dataclass

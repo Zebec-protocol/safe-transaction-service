@@ -16,6 +16,7 @@ schema_view = get_schema_view(
         description="API to keep track of transactions sent via Gnosis Safe smart contracts",
         license=openapi.License(name="MIT License"),
     ),
+    url=settings.BACKEND_URL,
     validators=["flex", "ssv"],
     public=True,
     permission_classes=[permissions.AllowAny],

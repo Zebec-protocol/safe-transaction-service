@@ -8,6 +8,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
 import django_filters
+import jwt
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from eth_typing import ChecksumAddress, HexStr
@@ -48,6 +49,7 @@ from .models import (
     SafeContractDelegate,
     SafeLastStatus,
     SafeMasterCopy,
+    SafeOwners,
     TransferDict,
 )
 from .pagination import ListPagination
@@ -130,7 +132,7 @@ class AboutEthereumRPCView(APIView):
             "syncing": syncing,
         }
 
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, format=None):
         """
         Get information about the Ethereum RPC node used by the service
@@ -140,7 +142,7 @@ class AboutEthereumRPCView(APIView):
 
 
 class AboutEthereumTracingRPCView(AboutEthereumRPCView):
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, format=None):
         """
         Get information about the Ethereum Tracing RPC node used by the service (if any configured)
@@ -156,7 +158,7 @@ class IndexingView(GenericAPIView):
     serializer_class = serializers.IndexingStatusSerializer
     pagination_class = None  # Don't show limit/offset in swagger
 
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request):
         """
         Get current indexing status for ERC20/721 events
@@ -166,7 +168,26 @@ class IndexingView(GenericAPIView):
         serializer = self.get_serializer(index_service.get_indexing_status())
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
+class AboutSafeView(GenericAPIView):
+    serializer_class = serializers.SafeInfoResponseSerializer
+    pagination_class = None  # Don't show limit/offset in swagger
 
+    @method_decorator(cache_page(0))  # 15 seconds
+    def get(self, request):
+        """
+        Get information about a Safe
+        """
+        try:
+            safe_count = (
+                SafeContract.objects.filter(name__isnull=False)
+                .exclude(name__exact="")
+                .count()
+            )
+            return Response(status=status.HTTP_200_OK, data={"count": safe_count})
+        except CannotGetSafeInfoFromBlockchain:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        
 class SingletonsView(ListAPIView):
     serializer_class = serializers.MasterCopyResponseSerializer
     pagination_class = None
@@ -607,12 +628,18 @@ class SafeMultisigTransactionListView(ListAPIView):
     pagination_class = pagination.DefaultPagination
 
     def get_queryset(self):
-        return (
+        print("query", self.request.query_params)
+        result = (
             MultisigTransaction.objects.filter(safe=self.kwargs["address"])
             .with_confirmations_required()
             .prefetch_related("confirmations")
             .select_related("ethereum_tx__block")
-            .order_by("-nonce", "-created")
+        )
+        return (
+            result.order_by("-created")
+            if "executed" in self.request.query_params
+            and self.request.query_params["executed"] == "true"
+            else result.order_by("nonce", "-created")
         )
 
     def get_unique_nonce(self, address: str):
@@ -637,6 +664,7 @@ class SafeMultisigTransactionListView(ListAPIView):
         Returns the history of a multisig tx (safe)
         """
         address = kwargs["address"]
+
         if not fast_is_checksum_address(address):
             return Response(
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -649,6 +677,23 @@ class SafeMultisigTransactionListView(ListAPIView):
 
         response = super().get(request, *args, **kwargs)
         response.data["count_unique_nonce"] = self.get_unique_nonce(address)
+        if "nonce__gte" in request.GET:
+            nonce = request.GET["nonce__gte"]
+            if nonce.isdigit():
+                transactions = (
+                    MultisigTransaction.objects.filter(
+                        safe=address, nonce=nonce, ethereum_tx_id=None
+                    )
+                    .with_confirmations_required()
+                    .prefetch_related("confirmations")
+                    .select_related("ethereum_tx__block")
+                    .order_by("-created")
+                )
+                response.data[
+                    "priority"
+                ] = serializers.SafeMultisigTransactionResponseSerializer(
+                    transactions, many=True
+                ).data
         return response
 
     @swagger_auto_schema(
@@ -1159,15 +1204,178 @@ class SafeInfoView(GenericAPIView):
                     "arguments": [address],
                 },
             )
+        safes = SafeContract.objects.filter(address=address)
+        if not safes.exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
-        if not SafeContract.objects.filter(address=address).exists():
+        try:
+            safe = safes.first()
+            safe_info = SafeServiceProvider().get_safe_info(address)
+            # safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
+            serializer = self.get_serializer(safe_info)
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    **serializer.data,
+                    "name": safe.name,
+                    "owners_data": [
+                        {
+                            "address": each_owner,
+                            "name": SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
+                            )
+                            .first()
+                            .name
+                            if SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
+                            ).exists()
+                            else None,
+                        }
+                        for each_owner in safe_info.owners
+                    ],
+                },
+            )
+
+        except CannotGetSafeInfoFromBlockchain:
+            return Response(
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                data={
+                    "code": 50,
+                    "message": "Cannot get Safe info from blockchain",
+                    "arguments": [address],
+                },
+            )
+
+    def post(self, request, address):
+        """Function updating Safe name  and get status of the safe"""
+        # access authentication token from request header
+        token = request.META.get("HTTP_AUTHORIZATION", " ").split(" ")
+        token = token[1] if len(token) > 1 else token[0]
+        owner = None
+        # jwt verify token
+        try:
+            payload = jwt.decode(
+                token, key=settings.SECRET_KEY_JWT, algorithms=["HS256"]
+            )
+            if "wallet" not in payload:
+                return Response(
+                    status=status.HTTP_401_UNAUTHORIZED,
+                    data={"code": 401, "message": "Invalid token"},
+                )
+            owner = payload["wallet"]
+        except Exception as err:
+            return Response(
+                status=status.HTTP_401_UNAUTHORIZED,
+                data={"code": 401, "message": err.__str__()},
+            )
+
+        contract = SafeContract.objects.filter(address=address)
+        if not contract.exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         try:
             # safe_info = SafeServiceProvider().get_safe_info(address)
+            safe = contract.first()
+            if "archived" in request.data:
+                safe.archived = not safe.archived
+                safe.save()
+                return Response(
+                    status=status.HTTP_200_OK,
+                    data={
+                        "safe": safe.address,
+                        "archived": safe.archived,
+                        "message": "Safe archived successfully"
+                        if safe.archived
+                        else "Safe unarchived successfully",
+                    },
+                )
+            if not ("name" in request.data):
+                return Response(status=status.HTTP_400_BAD_REQUEST)
+            safe.name = request.data["name"]
+            safe.save()
             safe_info = SafeServiceProvider().get_safe_info_from_blockchain(address)
+
+            if owner not in safe_info.owners:
+                return Response(
+                    status=status.HTTP_401_UNAUTHORIZED,
+                    data={"code": 401, "message": "User is not owner of safe"},
+                )
             serializer = self.get_serializer(safe_info)
-            return Response(status=status.HTTP_200_OK, data=serializer.data)
+            if "owners_data" in request.data:
+                owner_data = request.data["owners_data"]
+                # check if owner_data is valid list
+                if not isinstance(owner_data, list):
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "code": 400,
+                            "message": "owner_data is not valid list",
+                        },
+                    )
+                # check if owner_data is valid list of dict
+                for owner in owner_data:
+                    if not isinstance(owner, dict):
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "code": 400,
+                                "message": "Data of owner is not valid",
+                            },
+                        )
+                    if not ("address" in owner):
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "code": 400,
+                                "message": "Address is required",
+                            },
+                        )
+                    if not ("name" in owner):
+                        continue
+                    if not isinstance(owner["name"], str):
+                        continue
+                    if owner["address"].lower() not in [
+                        each.lower() for each in safe_info.owners
+                    ]:
+                        continue
+                    if SafeOwners.objects.filter(
+                        safe=safe.address, address__iexact=owner["address"].lower()
+                    ).exists():
+                        SafeOwners.objects.filter(
+                            safe=safe.address, address__iexact=owner["address"].lower()
+                        ).update(name=owner["name"])
+                    else:
+                        SafeOwners.objects.update_or_create(
+                            safe=safe.address,
+                            address=owner["address"],
+                            name=owner["name"],
+                        )
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    **serializer.data,
+                    "name": safe.name,
+                    "owners_data": [
+                        {
+                            "address": each_owner,
+                            "name": SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
+                            )
+                            .first()
+                            .name
+                            if SafeOwners.objects.filter(
+                                address__iexact=each_owner.lower(),
+                                safe=safe_info.address,
+                            ).exists()
+                            else None,
+                        }
+                        for each_owner in safe_info.owners
+                    ],
+                },
+            )
         except CannotGetSafeInfoFromBlockchain:
             return Response(
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1189,7 +1397,7 @@ class ModulesView(GenericAPIView):
             422: "Module address checksum not valid",
         }
     )
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, address, *args, **kwargs):
         """
         Return Safes where the module address provided is enabled
@@ -1220,7 +1428,7 @@ class OwnersView(GenericAPIView):
             422: "Owner address checksum not valid",
         }
     )
-    @method_decorator(cache_page(15))  # 15 seconds
+    @method_decorator(cache_page(0))  # 15 seconds
     def get(self, request, address, *args, **kwargs):
         """
         Return Safes where the address provided is an owner
@@ -1238,7 +1446,41 @@ class OwnersView(GenericAPIView):
         safes_for_owner = SafeLastStatus.objects.addresses_for_owner(address)
         serializer = self.get_serializer(data={"safes": safes_for_owner})
         assert serializer.is_valid()
-        return Response(status=status.HTTP_200_OK, data=serializer.data)
+        archived = False
+        print(request.query_params)
+        if (
+            "archived" in request.query_params
+            and request.query_params["archived"] == "true"
+        ):
+            archived = True
+        safe_data = [
+            {
+                "address": each.address,
+                "nonce": SafeLastStatus.objects.get(address=each.address).nonce
+                if SafeLastStatus.objects.get(address=each.address).nonce
+                else 0,
+                "threshold": SafeLastStatus.objects.get(address=each.address).threshold
+                if SafeLastStatus.objects.get(address=each.address).threshold
+                else 1,
+                "owners": SafeLastStatus.objects.get(address=each.address).owners
+                if SafeLastStatus.objects.get(address=each.address).owners
+                else [],
+                "name": each.name,
+                "created": each.created,
+            }
+            for each in SafeContract.objects.filter(
+                address__in=safes_for_owner, archived=archived
+            )
+        ]
+        safe_data.sort(key=lambda x: x["created"], reverse=True)
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                **serializer.data,
+                "safes": serializer.data["safes"] if len(safe_data) > 0 else [],
+                "safeData": safe_data,
+            },
+        )
 
 
 class DataDecoderView(GenericAPIView):

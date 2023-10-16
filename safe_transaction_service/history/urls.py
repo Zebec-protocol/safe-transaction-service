@@ -25,6 +25,11 @@ urlpatterns = [
         views.IndexingView.as_view(),
         name="indexing",
     ),
+    path(
+        "about/safes/",
+        views.AboutSafeView.as_view(),
+        name="about-safes",
+    ),
     path("data-decoder/", views.DataDecoderView.as_view(), name="data-decoder"),
     path("delegates/", views.DelegateListView.as_view(), name="delegates"),
     path(

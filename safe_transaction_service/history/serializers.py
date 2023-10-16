@@ -614,7 +614,8 @@ class SafeMultisigTransactionResponseSerializer(SafeMultisigTxSerializerV1):
 
     def get_data_decoded(self, obj: MultisigTransaction) -> Dict[str, Any]:
         # If delegate call contract must be whitelisted (security)
-        if obj.data_should_be_decoded():
+        hexValue = (obj.data.tobytes() if obj.data else b"").hex()
+        if obj.data_should_be_decoded() or hexValue.startswith("8d80ff0a"):
             return get_data_decoded_from_data(
                 obj.data.tobytes() if obj.data else b"", address=obj.to
             )
@@ -627,6 +628,10 @@ class IndexingStatusSerializer(serializers.Serializer):
     master_copies_block_number = serializers.IntegerField()
     master_copies_synced = serializers.BooleanField()
     synced = serializers.BooleanField()
+
+
+class AboutSafeResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
 
 
 class ERC20IndexingStatusSerializer(serializers.Serializer):
@@ -698,11 +703,17 @@ class SafeInfoResponseSerializer(serializers.Serializer):
     nonce = serializers.IntegerField()
     threshold = serializers.IntegerField()
     owners = serializers.ListField(child=EthereumAddressField())
+    # add owners data array of dict containing address and name field
+    owners_data = serializers.ListField(
+        child=serializers.DictField(), allow_null=True, required=False
+    )
     master_copy = EthereumAddressField()
     modules = serializers.ListField(child=EthereumAddressField())
     fallback_handler = EthereumAddressField()
     guard = EthereumAddressField()
     version = serializers.CharField(allow_null=True)
+    name = serializers.CharField(required=False)
+    archived = serializers.BooleanField(required=False)
 
 
 class MasterCopyResponseSerializer(serializers.Serializer):

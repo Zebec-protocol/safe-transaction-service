@@ -1685,9 +1685,11 @@ class SafeContractManager(models.Manager):
 class SafeContract(models.Model):
     objects = SafeContractManager()
     address = EthereumAddressV2Field(primary_key=True)
+    name = models.CharField(max_length=225)
     ethereum_tx = models.ForeignKey(
         EthereumTx, on_delete=models.CASCADE, related_name="safe_contracts"
     )
+    archived = models.BooleanField(default=False)
     # Avoid to index events from problematic safes like non verified contracts
     banned = models.BooleanField(default=False)
 
@@ -1765,6 +1767,19 @@ class SafeContractDelegate(models.Model):
             f"Delegator={self.delegator} Delegate={self.delegate} for Safe={self.safe_contract_id} - "
             f"Label={self.label}"
         )
+
+
+class SafeOwners(models.Model):
+    safe = models.CharField(max_length=225)
+    address = models.CharField(max_length=225)
+    name = models.CharField(max_length=225)
+
+    class Meta:
+        verbose_name_plural = "Safe owners"
+        unique_together = (("safe", "address"),)
+
+    def __str__(self):
+        return f"Safe={self.safe} Owner={self.address}"
 
 
 class SafeStatusBase(models.Model):

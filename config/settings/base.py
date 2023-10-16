@@ -57,6 +57,8 @@ ENABLE_ANALYTICS = env("ENABLE_ANALYTICS", default=False)
 GUNICORN_REQUEST_TIMEOUT = gunicorn_request_timeout
 GUNICORN_WORKER_CONNECTIONS = gunicorn_worker_connections
 GUNICORN_WORKERS = gunicorn_workers
+# JWT
+SECRET_KEY_JWT = env("SECRET_KEY_JWT", default="secret")
 
 # DATABASES
 # ------------------------------------------------------------------------------
@@ -555,3 +557,7 @@ SWAGGER_SETTINGS = {
         "api_key": {"type": "apiKey", "in": "header", "name": "Authorization"}
     },
 }
+
+
+# Backend URL
+BACKEND_URL = env("BACKEND_URL", default="http://localhost:8000")
