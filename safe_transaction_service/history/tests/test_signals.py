@@ -7,9 +7,16 @@ from django.test import TestCase
 import factory
 
 from gnosis.eth import EthereumNetwork
+from gnosis.safe.tests.safe_test_case import SafeTestCaseMixin
 
+from safe_transaction_service.events.tasks import send_event_to_queue_task
 from safe_transaction_service.notifications.tasks import send_notification_task
 
+from ...safe_messages.models import SafeMessage, SafeMessageConfirmation
+from ...safe_messages.tests.factories import (
+    SafeMessageConfirmationFactory,
+    SafeMessageFactory,
+)
 from ..models import (
     ERC20Transfer,
     InternalTx,
@@ -27,7 +34,7 @@ from .factories import (
 )
 
 
-class TestSignals(TestCase):
+class TestSignals(SafeTestCaseMixin, TestCase):
     @factory.django.mute_signals(post_save)
     def test_build_webhook_payload(self):
         self.assertEqual(
@@ -76,25 +83,48 @@ class TestSignals(TestCase):
         self.assertEqual(payload["type"], WebHookType.PENDING_MULTISIG_TRANSACTION.name)
         self.assertEqual(payload["chainId"], str(EthereumNetwork.GANACHE.value))
 
+        safe_address = self.deploy_test_safe().address
+        safe_message = SafeMessageFactory(safe=safe_address)
+        payload = build_webhook_payload(SafeMessage, safe_message)[0]
+        self.assertEqual(payload["type"], WebHookType.MESSAGE_CREATED.name)
+        self.assertEqual(payload["address"], safe_address)
+        self.assertEqual(payload["messageHash"], safe_message.message_hash)
+        self.assertEqual(payload["chainId"], str(EthereumNetwork.GANACHE.value))
+
+        payload = build_webhook_payload(
+            SafeMessageConfirmation,
+            SafeMessageConfirmationFactory(safe_message=safe_message),
+        )[0]
+        self.assertEqual(payload["type"], WebHookType.MESSAGE_CONFIRMATION.name)
+        self.assertEqual(payload["address"], safe_address)
+        self.assertEqual(payload["messageHash"], safe_message.message_hash)
+        self.assertEqual(payload["chainId"], str(EthereumNetwork.GANACHE.value))
+
     @factory.django.mute_signals(post_save)
-    def test_process_webhook(self):
+    @mock.patch.object(send_webhook_task, "apply_async")
+    @mock.patch.object(send_notification_task, "apply_async")
+    @mock.patch.object(send_event_to_queue_task, "delay")
+    def test_process_webhook(
+        self,
+        webhook_task_mock,
+        send_notification_task_mock,
+        send_event_to_queue_task_mock,
+    ):
         multisig_confirmation = MultisigConfirmationFactory()
-        with mock.patch.object(send_webhook_task, "apply_async") as webhook_task_mock:
-            with mock.patch.object(
-                send_notification_task, "apply_async"
-            ) as send_notification_task_mock:
-                process_webhook(MultisigConfirmation, multisig_confirmation, True)
-                webhook_task_mock.assert_called()
-                send_notification_task_mock.assert_called()
+        process_webhook(MultisigConfirmation, multisig_confirmation, True)
+        webhook_task_mock.assert_called()
+        send_notification_task_mock.assert_called()
+        send_event_to_queue_task_mock.assert_called()
+        # reset calls
+        webhook_task_mock.reset_mock()
+        send_notification_task_mock.reset_mock()
+        send_event_to_queue_task_mock.reset_mock()
 
         multisig_confirmation.created -= timedelta(minutes=75)
-        with mock.patch.object(send_webhook_task, "apply_async") as webhook_task_mock:
-            with mock.patch.object(
-                send_notification_task, "apply_async"
-            ) as send_notification_task_mock:
-                process_webhook(MultisigConfirmation, multisig_confirmation, True)
-                webhook_task_mock.assert_not_called()
-                send_notification_task_mock.assert_not_called()
+        process_webhook(MultisigConfirmation, multisig_confirmation, True)
+        webhook_task_mock.assert_not_called()
+        send_notification_task_mock.assert_not_called()
+        send_event_to_queue_task_mock.assert_not_called()
 
     @factory.django.mute_signals(post_save)
     def test_is_relevant_notification_multisig_confirmation(self):
