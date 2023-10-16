@@ -18,7 +18,8 @@ urlpatterns = [
     ),
     path(
         "about/master-copies/", views.MasterCopiesView.as_view(), name="master-copies"
-    ),
+    ),  # Deprecated
+    path("about/singletons/", views.SingletonsView.as_view(), name="singletons"),
     path(
         "about/indexing/",
         views.IndexingView.as_view(),
@@ -96,11 +97,6 @@ urlpatterns = [
         "safes/<str:address>/balances/usd/",
         views.SafeBalanceUsdView.as_view(),
         name="safe-balances-usd",
-    ),
-    path(
-        "safes/<str:address>/delegates/",
-        views.SafeDelegateListView.as_view(),
-        name="safe-delegates",
     ),
     path(
         "safes/<str:address>/delegates/<str:delegate_address>/",

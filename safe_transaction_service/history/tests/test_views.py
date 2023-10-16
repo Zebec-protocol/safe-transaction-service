@@ -1,5 +1,7 @@
+import datetime
 import json
 import logging
+import pickle
 from dataclasses import asdict
 from unittest import mock
 from unittest.mock import MagicMock, PropertyMock
@@ -32,6 +34,7 @@ from safe_transaction_service.tokens.models import Token
 from safe_transaction_service.tokens.services.price_service import PriceService
 from safe_transaction_service.tokens.tests.factories import TokenFactory
 
+from ...utils.redis import get_redis
 from ..helpers import DelegateSignatureHelper
 from ..models import (
     IndexingStatus,
@@ -47,6 +50,7 @@ from ..views import SafeMultisigTransactionListView
 from .factories import (
     ERC20TransferFactory,
     ERC721TransferFactory,
+    EthereumBlockFactory,
     EthereumTxFactory,
     InternalTxFactory,
     ModuleTransactionFactory,
@@ -66,6 +70,16 @@ logger = logging.getLogger(__name__)
 class TestViews(SafeTestCaseMixin, APITestCase):
     def test_about_view(self):
         url = reverse("v1:history:about")
+        response = self.client.get(url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_swagger_json_schema(self):
+        url = reverse("schema-json", args=(".json",))
+        response = self.client.get(url, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_swagger_ui(self):
+        url = reverse("schema-swagger-ui")
         response = self.client.get(url, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -327,6 +341,104 @@ class TestViews(SafeTestCaseMixin, APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
+
+    def test_all_transactions_ordering(self):
+        safe_address = Account.create().address
+        block_2_days_ago = EthereumBlockFactory(
+            timestamp=timezone.now() - datetime.timedelta(days=2)
+        )
+        ethereum_tx_2_days_ago = EthereumTxFactory(block=block_2_days_ago)
+        # Older transaction
+        MultisigTransactionFactory(
+            safe=safe_address, ethereum_tx=ethereum_tx_2_days_ago
+        )
+        # Earlier transactions
+        MultisigTransactionFactory(safe=safe_address)
+        MultisigTransactionFactory(safe=safe_address)
+        # Nonce is not allowed as a sorting parameter
+        response = self.client.get(
+            reverse("v1:history:all-transactions", args=(safe_address,))
+            + "?ordering=nonce"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response = self.client.get(
+            reverse("v1:history:all-transactions", args=(safe_address,))
+            + "?trusted=False&ordering=execution_date"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 3)
+        first_result = response.data["results"][0]
+        self.assertEqual(
+            first_result["transaction_hash"], ethereum_tx_2_days_ago.tx_hash
+        )
+        response = self.client.get(
+            reverse("v1:history:all-transactions", args=(safe_address,))
+            + "?trusted=False&ordering=-execution_date"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 3)
+        last_result = response.data["results"][2]
+        self.assertEqual(
+            last_result["transaction_hash"], ethereum_tx_2_days_ago.tx_hash
+        )
+
+    def test_all_transactions_cache(self):
+        safe_address = "0x54f3c8e4Bf7bFDFF39B36d1FAE4e5ceBdD93C6A9"
+        # Older transaction
+        factory_transactions = [
+            MultisigTransactionFactory(safe=safe_address),
+            MultisigTransactionFactory(safe=safe_address),
+        ]
+        # all-txs:{safe}:{executed}{queued}{trusted}:{limit}:{offset}:{ordering}:{relevant_elements}
+        cache_key = "all-txs:0x54f3c8e4Bf7bFDFF39B36d1FAE4e5ceBdD93C6A9:100:10:0:execution_date:2"
+        redis = get_redis()
+        redis.delete(cache_key)
+        cache_result = redis.get(cache_key)
+        # Should be empty at the beginning
+        self.assertIsNone(cache_result)
+
+        response = self.client.get(
+            reverse("v1:history:all-transactions", args=(safe_address,))
+            + "?executed=True&queued=False&trusted=False&ordering=execution_date"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+
+        cache_result = redis.get(cache_key)
+        # Should be stored in redis cache
+        self.assertIsNotNone(cache_result)
+        # Cache should content the expected values
+        cache_values, cache_count = pickle.loads(cache_result)
+        self.assertEqual(cache_count, 2)
+        for cache_value, factory_transaction in zip(cache_values, factory_transactions):
+            self.assertEqual(
+                cache_value["safe_tx_hash"], factory_transaction.safe_tx_hash
+            )
+            self.assertEqual(cache_value["created"], factory_transaction.created)
+            self.assertEqual(
+                cache_value["execution_date"], factory_transaction.execution_date
+            )
+            self.assertEqual(
+                cache_value["block"], factory_transaction.ethereum_tx.block_id
+            )
+            self.assertEqual(cache_value["safe_nonce"], factory_transaction.nonce)
+        # Modify cache to empty list
+        redis.set(cache_key, pickle.dumps(([], 0)), ex=60 * 10)
+        response = self.client.get(
+            reverse("v1:history:all-transactions", args=(safe_address,))
+            + "?executed=True&queued=False&trusted=False&ordering=execution_date"
+        )
+        # Response should be returned from cache
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 0)
+
+        # Cache should be invalidated because there is new transaction
+        MultisigTransactionFactory(safe=safe_address)
+        response = self.client.get(
+            reverse("v1:history:all-transactions", args=(safe_address,))
+            + "?executed=True&queued=False&trusted=False&ordering=execution_date"
+        )
+        self.assertEqual(response.data["count"], 3)
 
     def test_all_transactions_wrong_transfer_type_view(self):
         # No token in database, so we must trust the event
@@ -1698,223 +1810,6 @@ class TestViews(SafeTestCaseMixin, APITestCase):
             ],
         )
 
-    def test_get_safe_delegate_list(self):
-        safe_address = Account.create().address
-        response = self.client.get(
-            reverse("v1:history:safe-delegates", args=(safe_address,)), format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["count"], 0)
-
-        safe_contract_delegate = SafeContractDelegateFactory()
-        safe_address = safe_contract_delegate.safe_contract_id
-        response = self.client.get(
-            reverse("v1:history:safe-delegates", args=(safe_address,)), format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(response.data["count"], 1)
-        result = response.data["results"][0]
-        self.assertEqual(result["delegate"], safe_contract_delegate.delegate)
-        self.assertEqual(result["delegator"], safe_contract_delegate.delegator)
-        self.assertEqual(result["label"], safe_contract_delegate.label)
-
-        safe_contract_delegate = SafeContractDelegateFactory(
-            safe_contract=safe_contract_delegate.safe_contract
-        )
-        response = self.client.get(
-            reverse("v1:history:safe-delegates", args=(safe_address,)), format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["count"], 2)
-
-        # A different non related Safe should not increase the number
-        SafeContractDelegateFactory()
-        response = self.client.get(
-            reverse("v1:history:safe-delegates", args=(safe_address,)), format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["count"], 2)
-
-    def test_delete_safe_delegate_list(self):
-        endpoint = "v1:history:safe-delegates"
-
-        owner_account = Account.create()
-        safe_address = self.deploy_test_safe(owners=[owner_account.address]).address
-        safe_contract = SafeContractFactory(address=safe_address)
-        response = self.client.delete(
-            reverse(endpoint, args=(safe_address,)), format="json"
-        )
-        self.assertEqual(
-            response.status_code, status.HTTP_400_BAD_REQUEST
-        )  # Data is missing
-
-        data = {
-            "signature": "0x" + "1" * 130,
-        }
-        not_existing_safe = Account.create().address
-        response = self.client.delete(
-            reverse(endpoint, args=(not_existing_safe,)), format="json", data=data
-        )
-        self.assertIn(
-            f"Safe={not_existing_safe} does not exist",
-            response.data["non_field_errors"][0],
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        hash_to_sign = DelegateSignatureHelper.calculate_hash(
-            safe_address, eth_sign=True
-        )
-        data["signature"] = owner_account.signHash(hash_to_sign)["signature"].hex()
-        SafeContractDelegateFactory(safe_contract=safe_contract)
-        SafeContractDelegateFactory(safe_contract=safe_contract)
-        SafeContractDelegateFactory(safe_contract=SafeContractFactory())
-        self.assertEqual(SafeContractDelegate.objects.count(), 3)
-        response = self.client.delete(
-            reverse(endpoint, args=(safe_address,)), format="json", data=data
-        )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(SafeContractDelegate.objects.count(), 1)
-
-        # Sign random address instead of the Safe address
-        hash_to_sign = DelegateSignatureHelper.calculate_hash(
-            Account.create().address, eth_sign=True
-        )
-        data["signature"] = owner_account.signHash(hash_to_sign)["signature"].hex()
-        response = self.client.delete(
-            reverse(endpoint, args=(safe_address,)), format="json", data=data
-        )
-        self.assertIn(
-            "Signing owner is not an owner of the Safe",
-            response.data["non_field_errors"][0],
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_post_safe_delegate(self):
-        safe_address = Account.create().address
-        delegate_address = Account.create().address
-        label = "Saul Goodman"
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)), format="json"
-        )
-        self.assertEqual(
-            response.status_code, status.HTTP_400_BAD_REQUEST
-        )  # Data is missing
-
-        data = {
-            "delegate": delegate_address,
-            "label": label,
-            "signature": "0x" + "1" * 130,
-        }
-
-        owner_account = Account.create()
-        safe_address = self.deploy_test_safe(owners=[owner_account.address]).address
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)),
-            format="json",
-            data=data,
-        )
-        self.assertIn(
-            f"Safe={safe_address} does not exist", response.data["non_field_errors"][0]
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        safe_contract = SafeContractFactory(address=safe_address)
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)),
-            format="json",
-            data=data,
-        )
-        self.assertIn(
-            "Signing owner is not an owner of the Safe",
-            response.data["non_field_errors"][0],
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        self.assertEqual(SafeContractDelegate.objects.count(), 0)
-        hash_to_sign = DelegateSignatureHelper.calculate_hash(delegate_address)
-        data["signature"] = owner_account.signHash(hash_to_sign)["signature"].hex()
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)),
-            format="json",
-            data=data,
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(SafeContractDelegate.objects.count(), 1)
-        safe_contract_delegate = SafeContractDelegate.objects.first()
-        self.assertEqual(safe_contract_delegate.delegate, delegate_address)
-        self.assertEqual(safe_contract_delegate.delegator, owner_account.address)
-        self.assertEqual(safe_contract_delegate.label, label)
-
-        label = "Jimmy McGill"
-        data["label"] = label
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)),
-            format="json",
-            data=data,
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(SafeContractDelegate.objects.count(), 1)
-        safe_contract_delegate.refresh_from_db()
-        self.assertEqual(safe_contract_delegate.label, label)
-
-        another_label = "Kim Wexler"
-        another_delegate_address = Account.create().address
-        data = {
-            "delegate": another_delegate_address,
-            "label": another_label,
-            "signature": owner_account.signHash(
-                DelegateSignatureHelper.calculate_hash(
-                    another_delegate_address, eth_sign=True
-                )
-            )["signature"].hex(),
-        }
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)),
-            format="json",
-            data=data,
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Test not internal server error on contract signature
-        signature = signature_to_bytes(
-            0, int(owner_account.address, 16), 65
-        ) + HexBytes("0" * 65)
-        data["signature"] = signature.hex()
-        response = self.client.post(
-            reverse("v1:history:safe-delegates", args=(safe_address,)),
-            format="json",
-            data=data,
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        response = self.client.get(
-            reverse("v1:history:safe-delegates", args=(safe_address,)), format="json"
-        )
-        self.assertCountEqual(
-            response.data["results"],
-            [
-                {
-                    "delegate": delegate_address,
-                    "delegator": owner_account.address,
-                    "label": label,
-                    "safe": safe_address,
-                },
-                {
-                    "delegate": another_delegate_address,
-                    "delegator": owner_account.address,
-                    "label": another_label,
-                    "safe": safe_address,
-                },
-            ],
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(SafeContractDelegate.objects.count(), 2)
-        self.assertCountEqual(
-            SafeContractDelegate.objects.get_delegates_for_safe(safe_address),
-            [delegate_address, another_delegate_address],
-        )
-
     def test_delegates_post(self):
         url = reverse("v1:history:delegates")
         safe_address = Account.create().address
@@ -1988,7 +1883,6 @@ class TestViews(SafeTestCaseMixin, APITestCase):
             "label": another_label,
             "delegate": delegate.address,
             "delegator": delegator.address,
-            "safe": None,
             "signature": delegator.signHash(
                 DelegateSignatureHelper.calculate_hash(delegate.address, eth_sign=True)
             )["signature"].hex(),
@@ -2767,16 +2661,6 @@ class TestViews(SafeTestCaseMixin, APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        # test internal_tx transfer_id empty trace_address
-        transfer_id = (
-            "ief060441f0101ab83d62066b962f97e3a582686e0720157407c965c5946c2f7a"
-        )
-        response = self.client.get(
-            reverse("v1:history:transfer", args=(transfer_id,)),
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
         # test invalid erc20 transfer_id empty log_index
         transfer_id = (
             "e27e15ba8dea473d98c80a6b45d372c0f3c6f8c184177044c935c37eb419d7216"
@@ -2837,6 +2721,39 @@ class TestViews(SafeTestCaseMixin, APITestCase):
             "tokenId": None,
             "tokenAddress": None,
             "from": internal_tx._from,
+            "tokenInfo": None,
+        }
+        self.assertEqual(response.json(), expected_result)
+
+        # test internal_tx transfer_id empty trace_address
+        ethereum_tx_hash = (
+            "0x12bafc5ee165d825201a24418e00bef6039bb06f6d09420ab1c5f7b4098c0809"
+        )
+        ethereum_tx = EthereumTxFactory(tx_hash=ethereum_tx_hash)
+        internal_tx_empty_trace_address = InternalTxFactory(
+            ethereum_tx=ethereum_tx, to=safe_address, trace_address=""
+        )
+        transfer_id_empty_trace_address = (
+            "i12bafc5ee165d825201a24418e00bef6039bb06f6d09420ab1c5f7b4098c0809"
+        )
+        response = self.client.get(
+            reverse("v1:history:transfer", args=(transfer_id_empty_trace_address,)),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_result = {
+            "type": TransferType.ETHER_TRANSFER.name,
+            "executionDate": internal_tx_empty_trace_address.ethereum_tx.block.timestamp.isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "blockNumber": internal_tx_empty_trace_address.ethereum_tx.block_id,
+            "transferId": transfer_id_empty_trace_address,
+            "transactionHash": internal_tx_empty_trace_address.ethereum_tx_id,
+            "to": safe_address,
+            "value": str(internal_tx_empty_trace_address.value),
+            "tokenId": None,
+            "tokenAddress": None,
+            "from": internal_tx_empty_trace_address._from,
             "tokenInfo": None,
         }
         self.assertEqual(response.json(), expected_result)
@@ -3253,8 +3170,8 @@ class TestViews(SafeTestCaseMixin, APITestCase):
         """
         SafeMasterCopy.objects.get_version_for_address.cache_clear()
 
-    def test_master_copies_view(self):
-        response = self.client.get(reverse("v1:history:master-copies"))
+    def _test_singletons_view(self, url: str):
+        response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
 
@@ -3264,7 +3181,7 @@ class TestViews(SafeTestCaseMixin, APITestCase):
             initial_block_number=deployed_block_number,
             tx_block_number=last_indexed_block_number,
         )
-        response = self.client.get(reverse("v1:history:master-copies"))
+        response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         expected_master_copy = [
             {
@@ -3279,7 +3196,7 @@ class TestViews(SafeTestCaseMixin, APITestCase):
         self.assertCountEqual(response.data, expected_master_copy)
 
         safe_master_copy = SafeMasterCopyFactory(l2=True)
-        response = self.client.get(reverse("v1:history:master-copies"))
+        response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         expected_l2_master_copy = [
             {
@@ -3297,9 +3214,17 @@ class TestViews(SafeTestCaseMixin, APITestCase):
         )
 
         with self.settings(ETH_L2_NETWORK=True):
-            response = self.client.get(reverse("v1:history:master-copies"))
+            response = self.client.get(url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertCountEqual(response.data, expected_l2_master_copy)
+
+    def test_singletons_view(self):
+        url = reverse("v1:history:singletons")
+        return self._test_singletons_view(url)
+
+    def test_master_copies_view(self):
+        url = reverse("v1:history:master-copies")
+        return self._test_singletons_view(url)
 
     def test_modules_view(self):
         invalid_address = "0x2A"

@@ -166,12 +166,20 @@ class IndexingStatusManager(models.Manager):
     def get_erc20_721_indexing_status(self) -> "IndexingStatus":
         return self.get(indexing_type=IndexingStatusType.ERC20_721_EVENTS.value)
 
-    def set_erc20_721_indexing_status(self, block_number: int) -> bool:
-        return bool(
-            self.filter(indexing_type=IndexingStatusType.ERC20_721_EVENTS.value).update(
-                block_number=block_number
-            )
-        )
+    def set_erc20_721_indexing_status(
+        self, block_number: int, from_block_number: Optional[int] = None
+    ) -> bool:
+        """
+
+        :param block_number:
+        :param from_block_number: If provided, only update the field if bigger than `from_block_number`, to protect
+                                  from reorgs
+        :return:
+        """
+        queryset = self.filter(indexing_type=IndexingStatusType.ERC20_721_EVENTS.value)
+        if from_block_number is not None:
+            queryset = queryset.filter(block_number__gte=from_block_number)
+        return bool(queryset.update(block_number=block_number))
 
 
 class IndexingStatus(models.Model):
@@ -264,15 +272,19 @@ class EthereumBlockQuerySet(models.QuerySet):
             timestamp__lte=timezone.now() - datetime.timedelta(seconds=seconds)
         ).order_by("-timestamp")
 
-    def not_confirmed(self, to_block_number: Optional[int] = None):
+    def not_confirmed(self):
         """
         :param to_block_number:
         :return: Block not confirmed until ``to_block_number``, if provided
         """
         queryset = self.filter(confirmed=False)
-        if to_block_number is not None:
-            queryset = queryset.filter(number__lte=to_block_number)
         return queryset
+
+    def since_block(self, block_number: int):
+        return self.filter(number__gte=block_number)
+
+    def until_block(self, block_number: int):
+        return self.filter(number__lte=block_number)
 
 
 class EthereumBlock(models.Model):
@@ -954,6 +966,13 @@ class InternalTx(models.Model):
             ),
             Index(fields=["_from", "timestamp"]),
             Index(fields=["to", "timestamp"]),
+            # Speed up getting ether transfers in all-transactions and ether transfer count
+            Index(
+                name="history_internal_transfer_idx",
+                fields=["to", "timestamp"],
+                include=["ethereum_tx_id", "block_number"],
+                condition=Q(call_type=0) & Q(value__gt=0),
+            ),
         ]
 
     def __str__(self):
@@ -1298,7 +1317,10 @@ class MultisigTransactionQuerySet(models.QuerySet):
         :return: queryset with `confirmations_required: int` field
         """
         threshold_safe_status_query = (
-            SafeStatus.objects.filter(internal_tx__ethereum_tx=OuterRef("ethereum_tx"))
+            SafeStatus.objects.filter(
+                address=OuterRef("safe"),
+                internal_tx__ethereum_tx=OuterRef("ethereum_tx"),
+            )
             .sorted_reverse_by_mined()
             .values("threshold")
         )
@@ -1594,6 +1616,70 @@ class SafeMasterCopy(MonitoredAddress):
 class SafeContractManager(models.Manager):
     def get_banned_safes(self) -> QuerySet[ChecksumAddress]:
         return self.filter(banned=True).values_list("address", flat=True)
+
+    def get_count_relevant_txs_for_safe(self, address: ChecksumAddress) -> int:
+        """
+        This method searches multiple tables and count every tx or event for a Safe.
+        It will return the same or higher value if compared to counting ``get_all_tx_identifiers``
+        as that method will group some transactions (for example, 3 ERC20 can be grouped in a ``MultisigTransaction``,
+        so it will be ``1`` element for ``get_all_tx_identifiers`` but ``4`` for this function.
+
+        This query should be pretty fast, and it's meant to be used for invalidating caches.
+
+        :param address:
+        :return: number of relevant txs for a Safe
+        """
+
+        query = """
+                SELECT SUM(count_all)
+                FROM (
+                    -- Get multisig transactions
+                    SELECT COUNT(*) AS count_all
+                    FROM "history_multisigtransaction"
+                    WHERE "history_multisigtransaction"."safe" = %s
+                    UNION ALL
+                    -- Get confirmations
+                    SELECT COUNT(*)
+                    FROM "history_multisigtransaction"
+                       JOIN "history_multisigconfirmation" ON "history_multisigtransaction"."safe_tx_hash" = "history_multisigconfirmation"."multisig_transaction_id"
+                    WHERE "history_multisigtransaction"."safe" = %s
+                    UNION ALL
+                    -- Get ERC20 Transfers
+                    SELECT COUNT(*)
+                    FROM "history_erc20transfer"
+                    WHERE (
+                            "history_erc20transfer"."to" = %s
+                            OR "history_erc20transfer"."_from" = %s
+                        )
+                    UNION ALL
+                    -- Get ERC721 Transfers
+                    SELECT COUNT(*)
+                    FROM "history_erc721transfer"
+                    WHERE (
+                            "history_erc721transfer"."to" = %s
+                            OR "history_erc721transfer"."_from" = %s
+                        )
+                    UNION ALL
+                    -- Get Ether Transfers
+                    SELECT COUNT(*)
+                    FROM "history_internaltx"
+                    WHERE (
+                            "history_internaltx"."call_type" = 0
+                            AND "history_internaltx"."to" = %s
+                            AND "history_internaltx"."value" > 0
+                        )
+                    UNION ALL
+                    -- Get Module Transactions
+                    SELECT COUNT(*)
+                    FROM "history_moduletransaction"
+                    WHERE "history_moduletransaction"."safe" = %s
+                ) subquery
+                """
+
+        with connection.cursor() as cursor:
+            hex_address = HexBytes(address)
+            cursor.execute(query, [hex_address] * 8)
+            return cursor.fetchone()[0]
 
 
 class SafeContract(models.Model):
@@ -1934,6 +2020,8 @@ class WebHookType(Enum):
     MODULE_TRANSACTION = 7
     OUTGOING_ETHER = 8
     OUTGOING_TOKEN = 9
+    MESSAGE_CREATED = 10
+    MESSAGE_CONFIRMATION = 11
 
 
 class WebHookQuerySet(models.QuerySet):
