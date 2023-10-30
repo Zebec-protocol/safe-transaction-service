@@ -27,7 +27,7 @@ MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
     # ),  # safe singleton address
     (
         "0x3E5c63644E683549055b9Be8653de26E0B4CD36E",
-        8485899,
+        29847652,
         "1.3.0+L2",
     ),  # default singleton address
     # (
@@ -61,7 +61,7 @@ PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
     # ),  # v1.3.0 safe singleton address
     (
         "0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2",
-        8485873,
+        29847652,
     ),  # v1.3.0 default singleton address
 ]
 
