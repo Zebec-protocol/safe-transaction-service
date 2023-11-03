@@ -16,31 +16,6 @@ MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
     ("0xA6f2e94bD3EF99528E946e818d4d4E884dF3D5Fc", 34741311, "1.3.0+L2"),
     ("0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552", 34741311, "1.3.0"),
 ]
-MASTER_COPIES[EthereumNetwork.UNKNOWN] = [
-    ("0x9972DaE88D551423ac060a73000CB44C2FcE4F3D", 2132557, "1.3.0+L2"),
-]
-MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
-    # (
-    #     "0xfb1bffC9d739B8D520DaF37dF666da4C687191EA",
-    #     29847652,
-    #     "1.3.0+L2",
-    # ),  # safe singleton address
-    (
-        "0x3E5c63644E683549055b9Be8653de26E0B4CD36E",
-        29847652,
-        "1.3.0+L2",
-    ),  # default singleton address
-    # (
-    #     "0x69f4D1788e39c87893C980c06EdF4b7f686e2938",
-    #     29847652,
-    #     "1.3.0",
-    # ),  # safe singleton address
-    # (
-    #     "0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552",
-    #     29847652,
-    #     "1.3.0",
-    # ),  # default singleton address
-]
 PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
     (
         "0x246f42884273405D13EC0b24c5803212EA3016C8",
@@ -48,21 +23,23 @@ PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_TESTNET] = [
     ),
 ]
 
+MASTER_COPIES[EthereumNetwork.UNKNOWN] = [
+    ("0x9972DaE88D551423ac060a73000CB44C2FcE4F3D", 2132557, "1.3.0+L2"),
+]
 PROXY_FACTORIES[EthereumNetwork.UNKNOWN] = [
     (
         "0xd82Cd7F8bc784cC513263C82350487376D92Ba29",
         2132557,
     )
 ]
+
+
+MASTER_COPIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
+    ( "0x9e197d502149DC080EDa5104eD4B5Ab1af7f2955", 33162070, "1.3.0+L2"),
+]
+
 PROXY_FACTORIES[EthereumNetwork.BINANCE_SMART_CHAIN_MAINNET] = [
-    # (
-    #     "0xC22834581EbC8527d974F8a1c97E1bEA4EF910BC",
-    #     29847652,
-    # ),  # v1.3.0 safe singleton address
-    (
-        "0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2",
-        29847652,
-    ),  # v1.3.0 default singleton address
+    ("0x793B8d24Da5643C207c15CB4927c60d9E8e616F6", 33162070), 
 ]
 
 
